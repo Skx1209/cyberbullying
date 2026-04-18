@@ -61,7 +61,7 @@ if analyze_button:
                 "You're a worthless piece of trash, nobody cares about you.",
                 "Looking forward to the holiday season, time with family."
             ],
-            'timestamp': pd.date_range('2024-01-01', periods=10, freq='H')
+            'timestamp': pd.date_range('2024-01-01', periods=10, freq='h')
         }
         df = pd.DataFrame(example_data)
     else:
