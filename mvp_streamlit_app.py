@@ -5,61 +5,61 @@ from bertopic import BERTopic
 from transformers import pipeline
 import time
 
-# 设置 matplotlib 字体（避免标题显示问题）
-plt.rcParams['font.sans-serif'] = ['DejaVu Sans']  # 使用英文标题，无需中文字体
+# Set matplotlib font (avoid display issues with titles)
+plt.rcParams['font.sans-serif'] = ['DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
-# 页面设置
-st.set_page_config(page_title="暴力舆情检测MVP", layout="wide")
-st.title("🔍 网络暴力舆情检测最小可行系统")
+# Page config
+st.set_page_config(page_title="Cyberbullying Detection MVP", layout="wide")
+st.title("🔍 Cyberbullying Detection MVP System")
 st.markdown("---")
 
-# 侧边栏：控制面板
+# Sidebar: Control Panel
 with st.sidebar:
-    st.header("⚙️ 控制面板")
+    st.header("⚙️ Control Panel")
     
-    # 数据选择
+    # Data source selection
     data_option = st.radio(
-        "选择数据源:",
-        ["使用示例数据", "上传CSV文件"]
+        "Select data source:",
+        ["Use sample data", "Upload CSV file"]
     )
     
-    # 文件上传组件（始终显示，放在按钮外）
+    # File uploader (always visible, outside button)
     uploaded_file = None
-    if data_option == "上传CSV文件":
-        uploaded_file = st.file_uploader("上传CSV文件", type=['csv'], key="csv_uploader")
+    if data_option == "Upload CSV file":
+        uploaded_file = st.file_uploader("Upload CSV file", type=['csv'], key="csv_uploader")
         if uploaded_file is not None:
-            # 缓存到 session_state，避免重复读取
+            # Cache to session_state to avoid re-reading
             st.session_state['uploaded_df'] = pd.read_csv(uploaded_file)
     
-    # 置信度阈值
+    # Confidence threshold slider
     confidence_threshold = st.slider(
-        "暴力检测置信度阈值 (%):",
+        "Toxicity detection confidence threshold (%):",
         min_value=0,
         max_value=100,
         value=50,
-        help="只有当模型置信度超过此阈值时，才标记为暴力言论"
+        help="Only mark text as toxic if model confidence exceeds this threshold"
     )
     
-    sample_size = st.slider("分析样本数量:", 10, 200, 50)
+    sample_size = st.slider("Sample size for analysis:", 10, 200, 50)
     
-    analyze_button = st.button("🚀 开始分析", type="primary")
+    analyze_button = st.button("🚀 Start Analysis", type="primary")
     
     st.markdown("---")
-    st.caption("系统状态: 最小可行版本")
+    st.caption("System status: MVP version")
 
-# 主界面
+# Main interface
 if analyze_button:
-    # 1. 进度显示
+    # 1. Progress indicators
     progress_bar = st.progress(0)
     status_text = st.empty()
     
-    # 2. 加载数据
-    status_text.text("步骤1/4: 加载数据中...")
+    # 2. Load data
+    status_text.text("Step 1/4: Loading data...")
     progress_bar.progress(25)
     
-    if data_option == "使用示例数据":
-        # 动态时间戳：以当前时间为终点，向前生成10个小时
+    if data_option == "Use sample data":
+        # Dynamic timestamp: ends at current time, go back 10 hours
         example_data = {
             'text': [
                 "You are such an idiot, I can't believe how stupid you are!",
@@ -77,40 +77,40 @@ if analyze_button:
         }
         df = pd.DataFrame(example_data)
     else:
-        # 使用上传的文件（从 session_state 或直接读取）
+        # Use uploaded file (from session_state or direct read)
         if uploaded_file is not None:
             df = st.session_state.get('uploaded_df')
             if df is None:
                 df = pd.read_csv(uploaded_file)
         else:
-            st.warning("请先上传CSV文件")
+            st.warning("Please upload a CSV file first")
             st.stop()
         
-        # 检查必要的列
+        # Check required columns
         if 'text' not in df.columns:
-            st.error("CSV文件必须包含 'text' 列")
+            st.error("CSV file must contain a column named 'text'")
             st.stop()
     
     texts = df['text'].tolist()[:sample_size]
     
-    # 显示数据预览
-    st.subheader("📊 数据预览")
+    # Show data preview
+    st.subheader("📊 Data Preview")
     st.dataframe(df.head(5), use_container_width=True)
     
-    # 3. 主题建模
-    status_text.text("步骤2/4: 主题建模分析中...")
+    # 3. Topic modeling
+    status_text.text("Step 2/4: Performing topic modeling...")
     progress_bar.progress(50)
-    time.sleep(1)  # 模拟处理时间
+    time.sleep(1)  # Simulate processing time
     
-    with st.spinner("正在分析文本主题..."):
+    with st.spinner("Analyzing text topics..."):
         topic_model = BERTopic(language="english", verbose=False)
         topics, _ = topic_model.fit_transform(texts)
     
-    # 4. 暴力检测
-    status_text.text("步骤3/4: 检测暴力言论...")
+    # 4. Toxicity detection
+    status_text.text("Step 3/4: Detecting toxic speech...")
     progress_bar.progress(75)
     
-    with st.spinner("正在检测暴力言论..."):
+    with st.spinner("Detecting toxic content..."):
         classifier = pipeline("text-classification", 
                             model="unitary/toxic-bert",
                             truncation=True)
@@ -127,22 +127,22 @@ if analyze_button:
             result_text = text[:100] + "..." if len(text) > 100 else text
             
             results.append({
-                '文本': result_text,
-                '原始文本': text,
-                '主题': int(topics[i]),
-                '预测标签': pred['label'],
-                '置信度(%)': f"{confidence:.2f}",
-                '是否暴力': "是" if is_toxic else "否",
-                '超过阈值': "是" if confidence >= confidence_threshold else "否"
+                'Text (short)': result_text,
+                'Original Text': text,
+                'Topic': int(topics[i]),
+                'Predicted Label': pred['label'],
+                'Confidence (%)': f"{confidence:.2f}",
+                'Is Toxic': "Yes" if is_toxic else "No",
+                'Above Threshold': "Yes" if confidence >= confidence_threshold else "No"
             })
     
-    # 5. 结果显示
-    status_text.text("步骤4/4: 生成报告...")
+    # 5. Display results
+    status_text.text("Step 4/4: Generating report...")
     progress_bar.progress(100)
     
     result_df = pd.DataFrame(results)
     
-    # 创建两列布局
+    # Two-column layout
     col1, col2 = st.columns(2)
     
     with col1:
@@ -167,7 +167,7 @@ if analyze_button:
     with col2:
         st.subheader("⚠️ Toxic Speech Statistics")
         
-        toxic_count = result_df['是否暴力'].value_counts().get('是', 0)
+        toxic_count = result_df['Is Toxic'].value_counts().get('Yes', 0)
         total_count = len(result_df)
         toxic_ratio = toxic_count / total_count if total_count > 0 else 0
         
@@ -180,11 +180,11 @@ if analyze_button:
             st.metric("Threshold", f"{confidence_threshold}%")
         
         st.subheader("📊 Toxicity by Topic")
-        if '主题' in result_df.columns:
+        if 'Topic' in result_df.columns:
             topic_stats = []
-            for topic in sorted(result_df['主题'].unique()):
-                topic_data = result_df[result_df['主题'] == topic]
-                toxic_in_topic = (topic_data['是否暴力'] == '是').sum()
+            for topic in sorted(result_df['Topic'].unique()):
+                topic_data = result_df[result_df['Topic'] == topic]
+                toxic_in_topic = (topic_data['Is Toxic'] == 'Yes').sum()
                 total_in_topic = len(topic_data)
                 ratio = toxic_in_topic / total_in_topic if total_in_topic > 0 else 0
                 topic_stats.append({
@@ -199,7 +199,7 @@ if analyze_button:
                 st.dataframe(stats_df.style.format({'Toxic Ratio': '{:.1%}'}), 
                             use_container_width=True)
     
-    # 6. 详细结果表格
+    # 6. Detailed results table
     st.subheader("📋 Detailed Results")
     
     col_filter1, col_filter2 = st.columns(2)
@@ -211,17 +211,17 @@ if analyze_button:
     
     display_df = result_df.copy()
     if filter_option == "Only Toxic":
-        display_df = display_df[display_df['是否暴力'] == '是']
+        display_df = display_df[display_df['Is Toxic'] == 'Yes']
     elif filter_option == "Only Non-Toxic":
-        display_df = display_df[display_df['是否暴力'] == '否']
+        display_df = display_df[display_df['Is Toxic'] == 'No']
     
     st.dataframe(display_df, use_container_width=True)
     
-    # 7. 置信度分布分析
+    # 7. Confidence distribution analysis
     st.subheader("📊 Confidence Score Analysis")
     
     try:
-        confidence_values = pd.to_numeric(result_df['置信度(%)'].str.rstrip('%'))
+        confidence_values = pd.to_numeric(result_df['Confidence (%)'].str.rstrip('%'))
         
         fig2, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
         
@@ -232,8 +232,8 @@ if analyze_button:
         ax1.set_title('Confidence Score Distribution')
         ax1.legend()
         
-        toxic_conf = confidence_values[result_df['是否暴力'] == '是']
-        non_toxic_conf = confidence_values[result_df['是否暴力'] == '否']
+        toxic_conf = confidence_values[result_df['Is Toxic'] == 'Yes']
+        non_toxic_conf = confidence_values[result_df['Is Toxic'] == 'No']
         
         ax2.boxplot([non_toxic_conf.dropna(), toxic_conf.dropna()], 
                    labels=['Non-Toxic', 'Toxic'])
@@ -245,13 +245,13 @@ if analyze_button:
     except:
         st.warning("Could not generate confidence distribution plot")
     
-    # 8. 导出功能
+    # 8. Export functionality
     st.subheader("💾 Export Results")
     csv = result_df.to_csv(index=False).encode('utf-8')
     st.download_button(
         label="Download CSV",
         data=csv,
-        file_name=f"violence_detection_results_threshold{confidence_threshold}.csv",
+        file_name=f"toxicity_detection_results_threshold{confidence_threshold}.csv",
         mime="text/csv"
     )
     
@@ -259,8 +259,8 @@ if analyze_button:
     progress_bar.empty()
 
 else:
-    # 初始界面：使用说明
-    st.info("👈 Please select data source in the left panel and click 'Start Analysis'")
+    # Initial interface: instructions
+    st.info("👈 Please select a data source in the left panel and click 'Start Analysis'")
     
     st.markdown("""
     ### 📌 System Functions
@@ -274,7 +274,7 @@ else:
     
     ### 🚀 Quick Start
     
-    1. Select "Use Sample Data" on the left
+    1. Select "Use sample data" on the left
     2. Adjust the toxicity threshold (recommended 50%-70%)
     3. Adjust sample size (recommended 50-100)
     4. Click "Start Analysis"
@@ -285,7 +285,7 @@ else:
     If you upload a CSV file, it must contain at least a column named `text`.
     """)
     
-    # 显示示例数据格式
+    # Show example data format
     example_df = pd.DataFrame({
         'text': ['Example text 1', 'Example text 2', 'Example text 3'],
         'timestamp': ['2024-01-01 10:00', '2024-01-01 11:00', '2024-01-01 12:00']
@@ -294,4 +294,4 @@ else:
         st.dataframe(example_df)
 
 st.markdown("---")
-st.caption("Cyberbullying Detection MVP | Based on BERTopic and Toxic-BERT | Version 1.2 (Fixed upload, charts, timestamp)")
+st.caption("Cyberbullying Detection MVP | Based on BERTopic and Toxic-BERT | Version 1.2 (English UI)")
