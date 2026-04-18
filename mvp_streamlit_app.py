@@ -5,6 +5,10 @@ from bertopic import BERTopic
 from transformers import pipeline
 import time
 
+# 设置 matplotlib 字体（避免标题显示问题）
+plt.rcParams['font.sans-serif'] = ['DejaVu Sans']  # 使用英文标题，无需中文字体
+plt.rcParams['axes.unicode_minus'] = False
+
 # 页面设置
 st.set_page_config(page_title="暴力舆情检测MVP", layout="wide")
 st.title("🔍 网络暴力舆情检测最小可行系统")
@@ -20,7 +24,15 @@ with st.sidebar:
         ["使用示例数据", "上传CSV文件"]
     )
     
-    # 添加置信度阈值设置
+    # 文件上传组件（始终显示，放在按钮外）
+    uploaded_file = None
+    if data_option == "上传CSV文件":
+        uploaded_file = st.file_uploader("上传CSV文件", type=['csv'], key="csv_uploader")
+        if uploaded_file is not None:
+            # 缓存到 session_state，避免重复读取
+            st.session_state['uploaded_df'] = pd.read_csv(uploaded_file)
+    
+    # 置信度阈值
     confidence_threshold = st.slider(
         "暴力检测置信度阈值 (%):",
         min_value=0,
@@ -47,7 +59,7 @@ if analyze_button:
     progress_bar.progress(25)
     
     if data_option == "使用示例数据":
-        # 修正后的示例数据
+        # 动态时间戳：以当前时间为终点，向前生成10个小时
         example_data = {
             'text': [
                 "You are such an idiot, I can't believe how stupid you are!",
@@ -61,20 +73,22 @@ if analyze_button:
                 "You're a worthless piece of trash, nobody cares about you.",
                 "Looking forward to the holiday season, time with family."
             ],
-            'timestamp': pd.date_range('2024-01-01', periods=10, freq='h')
+            'timestamp': pd.date_range(end=pd.Timestamp.now(), periods=10, freq='h')
         }
         df = pd.DataFrame(example_data)
     else:
-        # 文件上传
-        uploaded_file = st.file_uploader("上传CSV文件", type=['csv'])
-        if uploaded_file:
-            df = pd.read_csv(uploaded_file)
-            # 检查必要的列
-            if 'text' not in df.columns:
-                st.error("CSV文件必须包含 'text' 列")
-                st.stop()
+        # 使用上传的文件（从 session_state 或直接读取）
+        if uploaded_file is not None:
+            df = st.session_state.get('uploaded_df')
+            if df is None:
+                df = pd.read_csv(uploaded_file)
         else:
-            st.warning("请上传CSV文件")
+            st.warning("请先上传CSV文件")
+            st.stop()
+        
+        # 检查必要的列
+        if 'text' not in df.columns:
+            st.error("CSV文件必须包含 'text' 列")
             st.stop()
     
     texts = df['text'].tolist()[:sample_size]
@@ -92,12 +106,11 @@ if analyze_button:
         topic_model = BERTopic(language="english", verbose=False)
         topics, _ = topic_model.fit_transform(texts)
     
-    # 4. 暴力检测 - 修正逻辑
+    # 4. 暴力检测
     status_text.text("步骤3/4: 检测暴力言论...")
     progress_bar.progress(75)
     
     with st.spinner("正在检测暴力言论..."):
-        # 使用预训练的毒性检测模型
         classifier = pipeline("text-classification", 
                             model="unitary/toxic-bert",
                             truncation=True)
@@ -106,14 +119,11 @@ if analyze_button:
         toxic_labels = ['toxic', 'obscene', 'threat', 'insult', 'identity_hate']
         
         for i, text in enumerate(texts):
-            # 只取前512字符（模型限制）
             pred = classifier(text[:512])[0]
-            confidence = pred['score'] * 100  # 转换为百分比
+            confidence = pred['score'] * 100
             
-            # 使用阈值判断：只有置信度超过阈值且标签为毒性时才标记为暴力
             is_toxic = (pred['label'] in toxic_labels) and (confidence >= confidence_threshold)
             
-            # 获取最相关的毒性标签（如果有多个预测，这里简化处理）
             result_text = text[:100] + "..." if len(text) > 100 else text
             
             results.append({
@@ -136,45 +146,40 @@ if analyze_button:
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("📈 主题分布")
+        st.subheader("📈 Topic Distribution")
         
-        # 主题统计
         topic_counts = pd.Series(topics).value_counts().sort_index()
         fig, ax = plt.subplots(figsize=(8, 4))
         topic_counts.plot(kind='bar', ax=ax, color='skyblue')
-        ax.set_xlabel('主题编号')
-        ax.set_ylabel('文本数量')
-        ax.set_title('各主题文本分布')
+        ax.set_xlabel('Topic ID')
+        ax.set_ylabel('Number of Texts')
+        ax.set_title('Topic Distribution of Texts')
         st.pyplot(fig)
         
-        # 显示主题关键词
-        st.subheader("🔑 主题关键词")
+        st.subheader("🔑 Topic Keywords")
         try:
             topic_info = topic_model.get_topic_info()
             for i, row in topic_info.head(5).iterrows():
-                st.write(f"**主题 {row['Topic']}**: {row['Name']}")
+                st.write(f"**Topic {row['Topic']}**: {row['Name']}")
         except:
-            st.info("主题信息获取失败")
+            st.info("Failed to get topic information")
     
     with col2:
-        st.subheader("⚠️ 暴力言论统计")
+        st.subheader("⚠️ Toxic Speech Statistics")
         
-        # 暴力言论比例
         toxic_count = result_df['是否暴力'].value_counts().get('是', 0)
         total_count = len(result_df)
         toxic_ratio = toxic_count / total_count if total_count > 0 else 0
         
-        # 显示指标
         col2_1, col2_2, col2_3 = st.columns(3)
         with col2_1:
-            st.metric("暴力言论数", f"{toxic_count} 条")
+            st.metric("Toxic Count", f"{toxic_count}")
         with col2_2:
-            st.metric("暴力比例", f"{toxic_ratio:.1%}")
+            st.metric("Toxic Ratio", f"{toxic_ratio:.1%}")
         with col2_3:
-            st.metric("当前阈值", f"{confidence_threshold}%")
+            st.metric("Threshold", f"{confidence_threshold}%")
         
-        # 各主题暴力比例
-        st.subheader("📊 各主题暴力情况")
+        st.subheader("📊 Toxicity by Topic")
         if '主题' in result_df.columns:
             topic_stats = []
             for topic in sorted(result_df['主题'].unique()):
@@ -183,124 +188,110 @@ if analyze_button:
                 total_in_topic = len(topic_data)
                 ratio = toxic_in_topic / total_in_topic if total_in_topic > 0 else 0
                 topic_stats.append({
-                    '主题': topic,
-                    '总文本': total_in_topic,
-                    '暴力文本': toxic_in_topic,
-                    '暴力比例': ratio
+                    'Topic': topic,
+                    'Total Texts': total_in_topic,
+                    'Toxic Texts': toxic_in_topic,
+                    'Toxic Ratio': ratio
                 })
             
             if topic_stats:
                 stats_df = pd.DataFrame(topic_stats)
-                st.dataframe(stats_df.style.format({'暴力比例': '{:.1%}'}), 
+                st.dataframe(stats_df.style.format({'Toxic Ratio': '{:.1%}'}), 
                             use_container_width=True)
     
     # 6. 详细结果表格
-    st.subheader("📋 详细分析结果")
+    st.subheader("📋 Detailed Results")
     
-    # 添加过滤选项
     col_filter1, col_filter2 = st.columns(2)
     with col_filter1:
         filter_option = st.selectbox(
-            "筛选结果显示:",
-            ["全部", "仅暴力言论", "仅非暴力言论"]
+            "Filter results:",
+            ["All", "Only Toxic", "Only Non-Toxic"]
         )
     
-    # 应用筛选
     display_df = result_df.copy()
-    if filter_option == "仅暴力言论":
+    if filter_option == "Only Toxic":
         display_df = display_df[display_df['是否暴力'] == '是']
-    elif filter_option == "仅非暴力言论":
+    elif filter_option == "Only Non-Toxic":
         display_df = display_df[display_df['是否暴力'] == '否']
     
     st.dataframe(display_df, use_container_width=True)
     
     # 7. 置信度分布分析
-    st.subheader("📊 置信度分布分析")
+    st.subheader("📊 Confidence Score Analysis")
     
     try:
-        # 提取置信度数值用于分析
         confidence_values = pd.to_numeric(result_df['置信度(%)'].str.rstrip('%'))
         
         fig2, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
         
-        # 置信度分布直方图
         ax1.hist(confidence_values, bins=20, color='lightcoral', edgecolor='black')
-        ax1.axvline(x=confidence_threshold, color='red', linestyle='--', label=f'阈值 ({confidence_threshold}%)')
-        ax1.set_xlabel('置信度 (%)')
-        ax1.set_ylabel('频数')
-        ax1.set_title('置信度分布')
+        ax1.axvline(x=confidence_threshold, color='red', linestyle='--', label=f'Threshold ({confidence_threshold}%)')
+        ax1.set_xlabel('Confidence (%)')
+        ax1.set_ylabel('Frequency')
+        ax1.set_title('Confidence Score Distribution')
         ax1.legend()
         
-        # 箱型图：暴力 vs 非暴力的置信度分布
         toxic_conf = confidence_values[result_df['是否暴力'] == '是']
         non_toxic_conf = confidence_values[result_df['是否暴力'] == '否']
         
         ax2.boxplot([non_toxic_conf.dropna(), toxic_conf.dropna()], 
-                   labels=['非暴力', '暴力'])
-        ax2.set_ylabel('置信度 (%)')
-        ax2.set_title('暴力/非暴力言论的置信度分布')
+                   labels=['Non-Toxic', 'Toxic'])
+        ax2.set_ylabel('Confidence (%)')
+        ax2.set_title('Confidence Distribution by Toxicity')
         
         plt.tight_layout()
         st.pyplot(fig2)
     except:
-        st.warning("无法生成置信度分布图")
+        st.warning("Could not generate confidence distribution plot")
     
     # 8. 导出功能
-    st.subheader("💾 导出结果")
+    st.subheader("💾 Export Results")
     csv = result_df.to_csv(index=False).encode('utf-8')
     st.download_button(
-        label="下载分析结果(CSV)",
+        label="Download CSV",
         data=csv,
         file_name=f"violence_detection_results_threshold{confidence_threshold}.csv",
         mime="text/csv"
     )
     
-    status_text.text("✅ 分析完成！")
+    status_text.text("✅ Analysis complete!")
     progress_bar.empty()
 
 else:
     # 初始界面：使用说明
-    st.info("👈 请先在左侧控制面板选择数据源，然后点击'开始分析'按钮")
+    st.info("👈 Please select data source in the left panel and click 'Start Analysis'")
     
     st.markdown("""
-    ### 📌 系统功能说明
+    ### 📌 System Functions
     
-    这个最小系统演示了网络暴力舆情检测的核心流程：
+    This MVP demonstrates the core process of online toxic speech detection:
     
-    1. **数据输入**：使用示例数据或上传CSV文件
-    2. **主题分析**：自动识别文本中的讨论主题
-    3. **暴力检测**：判断每条文本是否包含暴力/毒性内容
-    4. **结果展示**：可视化分析和详细数据
+    1. **Data Input**: Use sample data or upload a CSV file
+    2. **Topic Analysis**: Automatically identify discussion topics
+    3. **Toxicity Detection**: Classify each text as toxic or not
+    4. **Result Visualization**: Interactive charts and detailed data
     
-    ### 🔧 重要修复说明
+    ### 🚀 Quick Start
     
-    针对之前版本中"置信度低但判断为暴力"的问题，本版本进行了以下修复：
+    1. Select "Use Sample Data" on the left
+    2. Adjust the toxicity threshold (recommended 50%-70%)
+    3. Adjust sample size (recommended 50-100)
+    4. Click "Start Analysis"
+    5. Wait 10-30 seconds for results
     
-    1. **添加置信度阈值控制**：可在侧边栏设置阈值（默认50%）
-    2. **双重验证逻辑**：只有当预测标签为毒性类别 **且** 置信度超过阈值时才标记为暴力
-    3. **增强的可视化**：新增置信度分布分析图表
-    4. **更详细的结果**：显示预测标签和是否超过阈值
+    ### 📁 CSV Format Requirements
     
-    ### 🚀 快速开始
-    
-    1. 在左侧选择"使用示例数据"
-    2. 调整暴力检测阈值（建议50%-70%）
-    3. 调整样本数量（建议50-100）
-    4. 点击"开始分析"按钮
-    5. 等待约10-30秒查看结果
-    
-    ### 📁 数据格式要求
-    
-    如需上传CSV文件，请确保包含至少一列名为 `text` 的列。
+    If you upload a CSV file, it must contain at least a column named `text`.
     """)
     
     # 显示示例数据格式
     example_df = pd.DataFrame({
-        'text': ['示例文本1', '示例文本2', '示例文本3'],
+        'text': ['Example text 1', 'Example text 2', 'Example text 3'],
         'timestamp': ['2024-01-01 10:00', '2024-01-01 11:00', '2024-01-01 12:00']
     })
-    with st.expander("查看示例数据格式"):
+    with st.expander("View example CSV format"):
         st.dataframe(example_df)
 
 st.markdown("---")
-st.caption("网络暴力舆情检测MVP系统 | 基于BERTopic和Toxic-BERT | 版本 1.1（已修复置信度问题）")
+st.caption("Cyberbullying Detection MVP | Based on BERTopic and Toxic-BERT | Version 1.2 (Fixed upload, charts, timestamp)")
